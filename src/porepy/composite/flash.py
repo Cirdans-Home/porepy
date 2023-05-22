@@ -1014,7 +1014,7 @@ class FlashNR:
             if guess_from_state is None:
                 thd_state.z = feed
                 thd_state = self._guess_fractions(
-                    thd_state, num_vals, num_iter=2, guess_K_values=True
+                    thd_state, num_vals, num_iter=4, guess_K_values=True
                 )
 
         elif flash_type == "p-h":
@@ -1467,7 +1467,7 @@ class FlashNR:
 
                 need_correction = invalid & (~corrected)
 
-                if np.any(need_correction):
+                if False: #np.any(need_correction):
                     # Corrections based on the negative flash.
                     # As long as the gas fraction is within the two inner-most poles,
                     # it is a feasible solution.

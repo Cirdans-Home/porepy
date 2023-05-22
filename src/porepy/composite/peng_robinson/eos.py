@@ -379,7 +379,7 @@ class PengRobinsonEoS(AbstractEoS):
                         customs_for_i.append(j)
                         bip_callables.update({(i, j): bip_c})
 
-            for j in range(i + 1, nc):  # strictly upper triangle matrix
+            for j in range(nc):  # strictly upper triangle matrix
                 comp_j = components[j]
 
                 # use custom models if implemented
@@ -495,6 +495,7 @@ class PengRobinsonEoS(AbstractEoS):
 
         # Fugacity extensions as per Ben Gharbia 2021
         dxi_a = list()
+        self.is_extended = False
         if np.any(self.is_extended):
             extend_phi: bool = True
             rho_ext = self._rho(p, T, Z_other)
@@ -1066,13 +1067,14 @@ class PengRobinsonEoS(AbstractEoS):
 
             # real part of the conjugate imaginary roots
             # used for extension of vanished roots
-            w = -real_part / 2 - c2_ / 3
+            # w = -real_part / 2 - c2_ / 3
+            w = B + (1.0 - B) / 3.0
 
             extension_is_bigger = z_1 < w
 
             correction = ~(acbc_rect[one_root_region])
-            w[correction] = z_1[correction]
-            extension_is_bigger[correction] = False
+            # w[correction] = z_1[correction]
+            # extension_is_bigger[correction] = False
 
             # slice indices such that w is the smaller root
             z_1_small = z_1[extension_is_bigger]
