@@ -1014,7 +1014,7 @@ class FlashNR:
             if guess_from_state is None:
                 thd_state.z = feed
                 thd_state = self._guess_fractions(
-                    thd_state, num_vals, num_iter=4, guess_K_values=True
+                    thd_state, num_vals, num_iter=5, guess_K_values=False
                 )
 
         elif flash_type == "p-h":
@@ -1384,11 +1384,11 @@ class FlashNR:
 
         return state
 
-    def _guess_fractions(
+    def _guess_fractions_old(
         self,
         state: ThermodynamicState,
         num_vals: int,
-        num_iter: int = 3,
+        num_iter: int = 5,
         guess_K_values: bool = True,
     ) -> ThermodynamicState:
         """Computes a guess for phase fractions and compositions, based on
@@ -1467,7 +1467,7 @@ class FlashNR:
 
                 need_correction = invalid & (~corrected)
 
-                if False: #np.any(need_correction):
+                if np.any(need_correction):
                     # Corrections based on the negative flash.
                     # As long as the gas fraction is within the two inner-most poles,
                     # it is a feasible solution.
@@ -1495,6 +1495,122 @@ class FlashNR:
                     corr_pos = exceeds & np.all(K_ > 1.0, axis=0) & need_correction
                     y[corr_neg] = 0.0
                     y[corr_pos] = 1.0
+
+                assert not np.any(
+                    np.logical_or(y < 0.0, 1.0 < y)
+                ), "y fraction estimate outside bound [0, 1]."
+                state.y[1].val = y
+                state.y[0].val = 1 - y
+
+            else:
+                raise NotImplementedError(
+                    f"p-T-based guess for {nph} phase fractions not available."
+                )
+
+            state = self._solve_for_compositions(state, K, num_vals)
+
+            # update K values from EoS
+            phase_props: list[PhaseProperties] = self.mixture.compute_properties(
+                state.p, state.T, state.X, store=False, normalize=True
+            )
+            K = [
+                [
+                    phase_props[0].phis[i].val / phase_props[j].phis[i].val + K_tol
+                    for i in range(ncp)
+                ]
+                for j in range(1, nph)
+            ]
+
+        # TODO implement a better guess for extended fraction in missing phases
+        # using isofugacity constraints?
+
+        return state
+
+    def _guess_fractions(
+        self,
+        state: ThermodynamicState,
+        num_vals: int,
+        num_iter: int = 5,
+        guess_K_values: bool = False,
+    ) -> ThermodynamicState:
+        """Computes a guess for phase fractions and compositions, based on
+        feed fractions, pressure and temperature.
+
+        This methodology uses some iterations on the Rachford-Rice equations, starting
+        from K-values computed by the Wilson correlation.
+
+        Parameters:
+            state: A thermodynamic state data structure.
+            num_vals: Number of values per state function.
+            num_iter: ``default=3``
+
+                Number of iterations for constant-k-value RR-solution.
+            guess_K_values: ``default=True``
+
+                If True, computes first K-value guesses using the Wilson correlation.
+                If False, computes the first K-values using the phase EoS.
+
+        Returns:
+            Argument ``state`` with updated fractions.
+
+        """
+
+        # declaration of returned objects
+        nph = self.mixture.num_phases
+        ncp = self.mixture.num_components
+        # K-values per independent phase (nph - 1)
+        K: list[list[NumericType]]
+        # tolerance to bind K-values away from zero
+        K_tol: float = 1e-10
+
+        if guess_K_values:
+            # TODO can we use Wilson for all independent phases if more than 2 phases?
+            p = state.p.val if isinstance(state.p, pp.ad.AdArray) else state.p
+            T = state.T.val if isinstance(state.T, pp.ad.AdArray) else state.T
+            K = [
+                [
+                    K_val_Wilson(p, comp.p_crit, T, comp.T_crit, comp.omega) + K_tol
+                    for comp in self.mixture.components
+                ]
+                for _ in range(1, nph)
+            ]
+        else:
+
+            # fill up with overall composition
+            state.X[0][0].val = state.z[0]
+            state.X[0][1].val = state.z[1]
+            state.X[1][0].val = state.z[0]
+            state.X[1][1].val = state.z[1]
+
+            phase_props: list[PhaseProperties] = self.mixture.compute_properties(
+                state.p, state.T, state.X, store=False, normalize=True
+            )
+            K = [
+                [
+                    phase_props[0].phis[i].val / phase_props[j].phis[i].val + K_tol
+                    for i in range(ncp)
+                ]
+                for j in range(1, nph)
+            ]
+
+        for _ in range(num_iter):
+            # Computing phase fraction estimates,
+            # depending on number of independent phases
+            if nph == 2:
+                y = rachford_rice_vle_inversion(state.z, K[0])
+                negative = y < 0.0
+                exceeds = y > 1.0
+                invalid = np.logical_or(negative, exceeds)
+
+                feasible_reg = rachford_rice_feasible_region(
+                    state.z, [np.ones(num_vals)], K
+                )
+                rr_pot = rachford_rice_potential(state.z, [np.ones(num_vals)], K)
+
+                correction_1 = (rr_pot > 0.0) & invalid
+                y = np.where(correction_1, np.zeros(num_vals), y)
+                correction_2 = (rr_pot < 0.0) & invalid & feasible_reg
+                y = np.where(correction_2, np.ones(num_vals), y)
 
                 assert not np.any(
                     np.logical_or(y < 0.0, 1.0 < y)
