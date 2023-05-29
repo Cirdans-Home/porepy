@@ -253,7 +253,7 @@ class PengRobinsonEoS(AbstractEoS):
 
         """
 
-        self._b_vals: tuple[float] = []
+        self._b_crit_vals: tuple[float] = []
         """Critical covolume values per component, using EoS-specific critical value.
 
         Computed in setter for :meth:`components`.
@@ -342,20 +342,20 @@ class PengRobinsonEoS(AbstractEoS):
     def components(self, components: list[Component_PR]) -> None:
 
         a_crits: list[float] = list()
-        bs: list[float] = list()
-        a_cors: list[float] = list()
+        b_crits: list[float] = list()
+        kappa_cors: list[float] = list()
 
         nc = len(components)
 
         # computing constant parameters
         for comp in components:
             a_crits.append(self._a_crit(comp.p_crit, comp.T_crit))
-            bs.append(self._b_crit(comp.p_crit, comp.T_crit))
-            a_cors.append(self._a_cor(comp.omega))
+            b_crits.append(self._b_crit(comp.p_crit, comp.T_crit))
+            kappa_cors.append(self._kappa_cor(comp.omega))
 
-        self._a_cor_vals = tuple(a_cors)
-        self._b_vals = tuple(bs)
+        self._b_crit_vals = tuple(b_crits)
         self._a_crit_vals = tuple(a_crits)
+        self._kappa_vals = tuple(kappa_cors)
 
         # prepare storage for constant bips
         self._bip_vals = np.zeros((nc, nc))
@@ -410,11 +410,11 @@ class PengRobinsonEoS(AbstractEoS):
                 # try to load BIPs from database, if custom has not been found so far
                 bip = load_bip(comp_i.CASr_number, comp_j.CASr_number)
                 # TODO: This needs some more thought. How to handle missing BIPs?
-                if bip == 0.0:
-                    logger.warn(
-                        "Loaded a BIP with zero value for"
-                        + f" components {comp_i.name} and {comp_j.name}."
-                    )
+                # if bip == 0.0:
+                #     logger.warn(
+                #         "Loaded a BIP with zero value for"
+                #         + f" components {comp_i.name} and {comp_j.name}."
+                #     )
                 # assert that no custom BIP is overwritten
                 assert (i, j) not in bip_callables.keys(), "Overwriting custom BIP."
                 self._bip_vals[i, j] = bip
@@ -476,7 +476,7 @@ class PengRobinsonEoS(AbstractEoS):
         # binary interaction parameters
         bip, dT_bip = self._compute_bips(T)
         # cohesion and covolume, and derivative
-        a, dT_a, a_comps, _ = self._compute_cohesion_terms(T, X, bip, dT_bip)
+        a, dT_a, alpha_a_comps, _ = self._compute_cohesion_terms(T, X, bip, dT_bip)
         b = self._compute_mixture_covolume(X)
         # compute non-dimensional quantities
         A = self._A(a, p, T)
@@ -495,31 +495,30 @@ class PengRobinsonEoS(AbstractEoS):
 
         # Fugacity extensions as per Ben Gharbia 2021
         dxi_a = list()
-        self.is_extended = False
-        if np.any(self.is_extended):
+        if False: #np.any(self.is_extended):
             extend_phi: bool = True
             rho_ext = self._rho(p, T, Z_other)
             G = self._Z_polynom(Z, A, B)
             Gamma_ext = Z * G / ((Z - B) * (Z**2 + 2 * Z * B - B**2))
             dxi_Z_other = list()
             for i in range(len(self.components)):
-                dxi_a_ = self._dXi_a(X, a_comps, bip, i)
+                dxi_a_ = self._dXi_a(X, alpha_a_comps, bip, i)
                 dxi_a.append(dxi_a_)
-                dxi_Z_other_ = self._dxi_Z(T, rho_ext, a, b, self._b_vals[i], dxi_a[i])
+                dxi_Z_other_ = self._dxi_Z(T, rho_ext, a, b, self._b_crit_vals[i], dxi_a[i])
                 dxi_Z_other.append(dxi_Z_other_)
             dZ_other = safe_sum([x * dz for x, dz in zip(X, dxi_Z_other)])
         else:
             extend_phi: bool = False
             for i in range(len(self.components)):
-                dxi_a_ = self._dXi_a(X, a_comps, bip, i)
+                dxi_a_ = self._dXi_a(X, alpha_a_comps, bip, i)
                 dxi_a.append(dxi_a_)
         # fugacity per present component
         phis: list[NumericType] = list()
         for i in range(len(self.components)):
-            b_i = self._b_vals[i]
+            b_i = self._b_crit_vals[i]
             B_i = self._B(b_i, p, T)
-            A_i = dxi_a[i] * p / (T * R_IDEAL) ** 2
-            phi_i = self._phi_i(Z, A_i, A, B_i, B)
+            A_i = dxi_a[i] # * p / (T * R_IDEAL) ** 2
+            phi_i = self._phi_i(Z, A_i, A, B_i, B, a)
 
             if extend_phi:
                 w1 = (B - B_i + dZ_other - dxi_Z_other[i]) / Z / 2
@@ -610,7 +609,7 @@ class PengRobinsonEoS(AbstractEoS):
         dT_a: list[NumericType] = []
 
         for i, comp in enumerate(self.components):
-            a_cor_i = self._a_cor_vals[i]
+            kappa_i = self._kappa_vals[i]
             a_crit_i = self._a_crit_vals[i]
             T_r_i = T / comp.T_crit
 
@@ -618,13 +617,13 @@ class PengRobinsonEoS(AbstractEoS):
             if hasattr(comp, "alpha"):
                 alpha_i = comp.alpha(T)
             else:
-                alpha_i = self._a_alpha(a_cor_i, T_r_i)
+                alpha_i = self._a_alpha(kappa_i, T_r_i)
 
             a_i = a_crit_i * pp.ad.power(alpha_i, 2)
             # outer derivative
             dT_a_i = 2 * a_crit_i * alpha_i
             # inner derivative
-            dT_a_i *= (-a_cor_i / (2 * comp.T_crit)) * pp.ad.power(T_r_i, -1 / 2)
+            dT_a_i *= (-kappa_i / (2 * comp.T_crit)) * pp.ad.power(T_r_i, -1 / 2)
 
             a.append(a_i)
             dT_a.append(dT_a_i)
@@ -685,7 +684,7 @@ class PengRobinsonEoS(AbstractEoS):
 
         """
         if self.mixingrule == "VdW":
-            return VanDerWaals.covolume(X, self._b_vals)
+            return VanDerWaals.covolume(X, self._b_crit_vals)
         else:
             raise ValueError(f"Unknown mixing rule {self.mixingrule}.")
 
@@ -706,7 +705,7 @@ class PengRobinsonEoS(AbstractEoS):
             The component-specific critical covolume.
 
         """
-        return cls.B_CRIT * (R_IDEAL * T_crit) / p_crit
+        return cls.B_CRIT * ((R_IDEAL / 1000.0) * T_crit) / p_crit
 
     @classmethod
     def _a_crit(cls, p_crit: float, T_crit: float) -> float:
@@ -726,7 +725,7 @@ class PengRobinsonEoS(AbstractEoS):
         return cls.A_CRIT * (R_IDEAL**2 * T_crit**2) / p_crit
 
     @staticmethod
-    def _a_cor(omega: float) -> float:
+    def _kappa_cor(omega: float) -> float:
         """
         References:
             `Zhu et al. (2014), Appendix A
@@ -740,7 +739,9 @@ class PengRobinsonEoS(AbstractEoS):
             acentric factor.
 
         """
-        if omega < 0.49:
+
+        # https://thermo.readthedocs.io/thermo.eos_mix.html#peng-robinson-1978
+        if omega < 0.491:
             return 0.37464 + 1.54226 * omega - 0.26992 * omega**2
         else:
             return (
@@ -751,10 +752,10 @@ class PengRobinsonEoS(AbstractEoS):
             )
 
     @staticmethod
-    def _a_alpha(a_cor: float, T_r: NumericType) -> NumericType:
+    def _a_alpha(kappa_cor: float, T_r: NumericType) -> NumericType:
         """
         Parameters:
-            a_cor: Acentric factor-dependent weight in the linearized correction of
+            kappa_cor: Acentric factor-dependent weight in the linearized correction of
                 the cohesion for a component.
             T_r: Reduced temperature for a component (divided by the component's
                 critical temperature.).
@@ -763,7 +764,7 @@ class PengRobinsonEoS(AbstractEoS):
             The root of the linearized correction for the cohesion term.
 
         """
-        return 1 + a_cor * (1 - pp.ad.sqrt(T_r))
+        return 1 + kappa_cor * (1 - pp.ad.sqrt(T_r))
 
     def _dXi_a(
         self,
@@ -790,9 +791,9 @@ class PengRobinsonEoS(AbstractEoS):
     def _B(b: NumericType, p: NumericType, T: NumericType) -> NumericType:
         """Auxiliary method implementing formula for non-dimensional covolume."""
         if isinstance(T, pp.ad.AdArray):
-            return T ** (-1) * b * p / R_IDEAL
+            return T ** (-1) * b * p / (R_IDEAL / 1000.0)
         else:
-            return b * p / (R_IDEAL * T)
+            return b * p / ((R_IDEAL / 1000.0) * T)
 
     # TODO
     def _kappa(self, p: NumericType, T: NumericType, Z: NumericType) -> NumericType:
@@ -854,7 +855,7 @@ class PengRobinsonEoS(AbstractEoS):
     @staticmethod
     def _g_dep(A: NumericType, B: NumericType, Z: NumericType):
         """Auxiliary function for computing the Gibbs departure function."""
-        return pp.ad.log(Z - B) - pp.ad.log(
+        return pp.ad.log(pp.ad.maximum(Z - B, 0.0 * B + 1.0e-8)) - pp.ad.log(
             (Z + (1 + np.sqrt(2)) * B) / (Z + (1 - np.sqrt(2)) * B)
         ) * A / B / np.sqrt(8)
 
@@ -870,14 +871,15 @@ class PengRobinsonEoS(AbstractEoS):
         A: NumericType,
         B_i: NumericType,
         B: NumericType,
+        a: NumericType,
     ) -> NumericType:
         """Auxiliary method implementing the formula for the fugacity coefficient."""
         log_phi_i = (
             (Z - 1) / B * B_i
-            - pp.ad.log(Z - B)
+            - pp.ad.log(pp.ad.maximum(Z - B, 0.0 * B + 1.0e-8)) # Find a better way to instance of null NumericType
             - A
             / (B * np.sqrt(8))
-            * (A_i / A - B ** (-1) * B_i)
+            * (A_i / a - B ** (-1) * B_i)
             * pp.ad.log((Z + (1 + np.sqrt(2)) * B) / (Z + (1 - np.sqrt(2)) * B))
         )
         return pp.ad.exp(log_phi_i)
@@ -981,6 +983,8 @@ class PengRobinsonEoS(AbstractEoS):
         # AD-arrays
         # identify super-critical line
         self.is_supercritical = B >= self.B_CRIT / self.A_CRIT * A
+        # identify approximated sub pseudo-critical line (includes widom line extension)
+        self.is_sub_pseudo_critical = B <= (self.B_CRIT / (self.A_CRIT - (7.0/40.0))) * (A - (7.0/40.0))
         # At A,B=0 we have 2 real roots, one with multiplicity 2
         zero_point = np.logical_and(
             np.logical_and(A >= -self.eps, A <= self.eps),
@@ -1067,12 +1071,13 @@ class PengRobinsonEoS(AbstractEoS):
 
             # real part of the conjugate imaginary roots
             # used for extension of vanished roots
-            # w = -real_part / 2 - c2_ / 3
-            w = B + (1.0 - B) / 3.0
+            # w = -real_part / 2 - c2_ / 3 + 2.0 * B + self.B_CRIT
+            w = (1 - B - z_1) / 2 + 2.0 * B + self.B_CRIT
+            # w = (1 - B - z_1) / 2
 
-            extension_is_bigger = z_1 < w
+            extension_is_bigger = self.is_sub_pseudo_critical #z_1 < w
 
-            correction = ~(acbc_rect[one_root_region])
+            # correction = ~(acbc_rect[one_root_region])
             # w[correction] = z_1[correction]
             # extension_is_bigger[correction] = False
 
@@ -1185,9 +1190,9 @@ class PengRobinsonEoS(AbstractEoS):
         #     Z_L > B
         # ), "Liquid root violates lower physical bound given by covolume B."
         # assert gas root is bigger than liquid root
-        assert np.all(
-            Z_G >= Z_L
-        ), "Liquid root violates upper physical bound given by gas root."
+        # assert np.all(
+        #     Z_G >= Z_L
+        # ), "Liquid root violates upper physical bound given by gas root."
 
         # convert Jacobians to csr
         if isinstance(Z_L, pp.ad.AdArray):

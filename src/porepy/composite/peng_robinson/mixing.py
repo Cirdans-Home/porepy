@@ -60,24 +60,20 @@ class VanDerWaals:
         # mixture matrix is symmetric, sum over all entries in upper triangle
         # multiply off-diagonal elements with 2
         for i in range(nc):
-            for j in range(i, nc):
+            for j in range(nc):
                 x_ij = X[i] * X[j]
-                if i != j:
-                    a_ij_ = pp.ad.sqrt(a[i] * a[j])
-                    delta_ij = 1 - bip[i][j]
+                # if i != j:
+                a_ij_ = pp.ad.sqrt(a[i] * a[j])
+                delta_ij = 1 - bip[i][j]
 
-                    a_ij = a_ij_ * delta_ij
-                    dT_a_ij = (
-                        pp.ad.power(a[i] * a[j], -1 / 2)
-                        / 2
-                        * (dT_a[i] * a[j] + a[i] * dT_a[j])
-                        * delta_ij
-                        - a_ij_ * dT_bip[i][j]
-                    )
-                else:
-                    a_ij = a[i]
-                    dT_a_ij = dT_a[i]
-
+                a_ij = a_ij_ * delta_ij
+                dT_a_ij = (
+                    pp.ad.power(a[i] * a[j], -1 / 2)
+                    / 2
+                    * (dT_a[i] * a[j] + a[i] * dT_a[j])
+                    * delta_ij
+                    - a_ij_ * dT_bip[i][j]
+                )
                 a_parts.append(x_ij * a_ij)
                 dT_a_parts.append(x_ij * dT_a_ij)
 
@@ -106,15 +102,14 @@ class VanDerWaals:
         parts: list[NumericType] = []
 
         # i-th part
-        parts.append(2 * X[i] * a[i])
+        # parts.append(2 * X[i] * a[i])
 
         # other parts
         for j in range(len(X)):
-            if j != i:
-                a_ij = pp.ad.sqrt(a[i] * a[j]) * (1 - bip[i][j])
-                parts.append(2 * X[j] * a_ij)
+            a_ij = pp.ad.sqrt(a[i] * a[j]) * (1 - bip[i][j])
+            parts.append(X[j] * a_ij)
 
-        return safe_sum(parts)
+        return 2.0 * safe_sum(parts)
 
     @staticmethod
     def covolume(X: list[NumericType], b: list[NumericType]) -> NumericType:

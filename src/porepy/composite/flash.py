@@ -1014,7 +1014,7 @@ class FlashNR:
             if guess_from_state is None:
                 thd_state.z = feed
                 thd_state = self._guess_fractions(
-                    thd_state, num_vals, num_iter=5, guess_K_values=False
+                    thd_state, num_vals, guess_K_values=False
                 )
 
         elif flash_type == "p-h":
