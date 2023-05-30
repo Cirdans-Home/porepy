@@ -984,7 +984,9 @@ class PengRobinsonEoS(AbstractEoS):
         # identify super-critical line
         self.is_supercritical = B >= self.B_CRIT / self.A_CRIT * A
         # identify approximated sub pseudo-critical line (includes widom line extension)
-        self.is_sub_pseudo_critical = B <= (self.B_CRIT / (self.A_CRIT - (7.0/40.0))) * (A - (7.0/40.0))
+        # self.is_sub_pseudo_critical = B <= (self.B_CRIT / (self.A_CRIT - (7.0/40.0))) * (A - (7.0/40.0))
+        self.is_sub_pseudo_critical = B <= self.B_CRIT + 0.7 * 0.3381965009398633 * (A - self.A_CRIT)
+
         # At A,B=0 we have 2 real roots, one with multiplicity 2
         zero_point = np.logical_and(
             np.logical_and(A >= -self.eps, A <= self.eps),
