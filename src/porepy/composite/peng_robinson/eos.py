@@ -1072,7 +1072,7 @@ class PengRobinsonEoS(AbstractEoS):
             # real part of the conjugate imaginary roots
             # used for extension of vanished roots
             # w = -real_part / 2 - c2_ / 3 + 2.0 * B + self.B_CRIT
-            w = (1 - B - z_1) / 2 + 2.0 * B + self.B_CRIT
+            w = (1 - B - z_1) / 2 + B + self.B_CRIT
             # w = (1 - B - z_1) / 2
 
             extension_is_bigger = self.is_sub_pseudo_critical #z_1 < w
