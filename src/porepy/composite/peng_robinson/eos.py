@@ -876,7 +876,7 @@ class PengRobinsonEoS(AbstractEoS):
         """Auxiliary method implementing the formula for the fugacity coefficient."""
         log_phi_i = (
             (Z - 1) / B * B_i
-            - pp.ad.log(pp.ad.maximum(Z - B, 0.0 * B + 1.0e-8)) # Find a better way to instance of null NumericType
+            - pp.ad.log(pp.ad.maximum(Z - B, 0.0 * B + 1.0e-3)) # Find a better way to instance of null NumericType
             - A
             / (B * np.sqrt(8))
             * (A_i / a - B ** (-1) * B_i)
@@ -983,9 +983,8 @@ class PengRobinsonEoS(AbstractEoS):
         # AD-arrays
         # identify super-critical line
         self.is_supercritical = B >= self.B_CRIT / self.A_CRIT * A
-        # identify approximated sub pseudo-critical line (includes widom line extension)
-        # self.is_sub_pseudo_critical = B <= (self.B_CRIT / (self.A_CRIT - (7.0/40.0))) * (A - (7.0/40.0))
-        self.is_sub_pseudo_critical = B <= self.B_CRIT + 0.7 * 0.3381965009398633 * (A - self.A_CRIT)
+        # identify approximated sub pseudo-critical line (approximates Widom line)
+        self.is_sub_pseudo_critical = B <= self.B_CRIT + 0.8 * 0.3381965009398633 * (A - self.A_CRIT)
 
         # At A,B=0 we have 2 real roots, one with multiplicity 2
         zero_point = np.logical_and(
@@ -1074,8 +1073,8 @@ class PengRobinsonEoS(AbstractEoS):
             # real part of the conjugate imaginary roots
             # used for extension of vanished roots
             # w = -real_part / 2 - c2_ / 3 + 2.0 * B + self.B_CRIT
-            w = (1 - B - z_1) / 2 + B + self.B_CRIT
-            # w = (1 - B - z_1) / 2
+            # w = (1 - B - z_1) / 2 + B + self.B_CRIT
+            w = (1 - B - z_1) / 2 + B
 
             extension_is_bigger = self.is_sub_pseudo_critical #z_1 < w
 
@@ -1182,10 +1181,10 @@ class PengRobinsonEoS(AbstractEoS):
             Z_L[region] = z_23
             Z_G[region] = z_1
 
-        # Correct the smaller root if it violates the lower bound B
-        correction = Z_L <= B
-        if np.any(correction):
-            Z_L[correction] = B[correction] + self.eps
+        # # Correct the smaller root if it violates the lower bound B
+        # correction = Z_L <= B
+        # if np.any(correction):
+        #     Z_L[correction] = B[correction] + self.eps
 
         # assert physical meaningfulness
         # assert np.all(

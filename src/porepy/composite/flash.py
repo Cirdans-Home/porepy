@@ -1530,7 +1530,7 @@ class FlashNR:
         self,
         state: ThermodynamicState,
         num_vals: int,
-        num_iter: int = 5,
+        num_iter: int = 10,
         guess_K_values: bool = False,
     ) -> ThermodynamicState:
         """Computes a guess for phase fractions and compositions, based on
